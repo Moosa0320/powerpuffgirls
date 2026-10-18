@@ -8,13 +8,14 @@ import {
   FileCode
 } from 'lucide-react';
 import { BANNED_PATTERNS } from '../services/api';
+import { HFModelPanel } from './HFModelPanel';
 import type { Language } from '../types';
 
 interface VerifierInspectorProps {
   language?: Language;
 }
 
-export const VerifierInspector: React.FC<VerifierInspectorProps> = () => {
+export const VerifierInspector: React.FC<VerifierInspectorProps> = ({ language = 'en' }) => {
   const [testClaim, setTestClaim] = useState(
     'The tomatoes definitely have early blight fungal infection and you should spray 200ml Mancozeb per acre.'
   );
@@ -87,15 +88,17 @@ export const VerifierInspector: React.FC<VerifierInspectorProps> = () => {
   };
 
   return (
-    <div style={{
-      maxWidth: 1400,
-      margin: '24px auto',
-      padding: '0 24px',
-      display: 'grid',
-      gridTemplateColumns: '1.2fr 1fr',
-      gap: 24,
-      alignItems: 'start'
-    }}>
+    <div style={{ maxWidth: 1400, margin: '24px auto', padding: '0 24px' }}>
+      {/* HuggingFace Model Health Panel */}
+      <HFModelPanel language={language} />
+
+      {/* Verifier + Rules Grid */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1.2fr 1fr',
+        gap: 24,
+        alignItems: 'start'
+      }}>
       {/* Left Column: Interactive Verifier Sandbox */}
       <div className="glass-panel" style={{ padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
@@ -315,6 +318,7 @@ export const VerifierInspector: React.FC<VerifierInspectorProps> = () => {
           </p>
         </div>
       </div>
+      </div>{/* end inner grid */}
     </div>
   );
 };

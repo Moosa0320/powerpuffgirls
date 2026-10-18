@@ -1,0 +1,11 @@
+event_id,field,type,date,date_certainty,product,quantity,unit,symptom,source
+E-001,North,planting,2026-02-01,exact,tomato,,,,farmer_text
+E-002,North,fertilizer,2026-02-20,exact,urea,1,bori,,farmer_voice
+E-003,North,irrigation,2026-02-22,exact,,1,tanki,,farmer_text
+E-004,North,irrigation,2026-02-25,approximate,,1,tanki,,farmer_voice
+E-005,North,fertilizer,2026-03-05,exact,urea,2,bori,,farmer_voice
+E-006,North,weather,2026-03-06,exact,rainfall,45,mm,,weather_api
+E-007,North,irrigation,2026-03-08,exact,,1,tanki,,farmer_text
+E-008,North,pesticide,2026-03-09,approximate,spray,,,,farmer_voice
+E-009,North,observation,2026-03-12,exact,,,,patta peela (yellow leaves),farmer_text
+E-010,North,fertilizer,,unknown,DAP,1,bori,,farmer_text

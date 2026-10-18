@@ -19,7 +19,8 @@ REGISTRY: dict[str, dict[str, Any]] = {
     "stt": {"local": "harness.stt.local_whisper:LocalWhisperSTT",
             "groq": "harness.stt.groq_whisper:GroqWhisperSTT"},
     "llm": {"ollama": "harness.llm.ollama:OllamaLLM", "groq": "harness.llm.groq:GroqLLM"},
-    "vision": {"local": "harness.vision.local_vlm:LocalVLM", "groq": "harness.vision.groq_vlm:GroqVLM"},
+    "vision": {"local": "harness.vision.local_vlm:LocalVLM", "groq": "harness.vision.groq_vlm:GroqVLM",
+               "hf": "harness.vision.hf_vlm:HfVLM"},
     "tts": {"piper": "harness.tts.piper_local:PiperTTS",
             "elevenlabs": "harness.tts.elevenlabs:ElevenLabsTTS", "none": None},
 }

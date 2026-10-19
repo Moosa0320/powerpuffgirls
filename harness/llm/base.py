@@ -40,7 +40,8 @@ class LLMProvider(Provider, ABC):
         json_schema: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> Result[LLMReply]:
-        return safe_call(self.name, self._chat, messages, json_schema, tools)
+        return safe_call(self.name, self._chat, messages, json_schema, tools,
+                         timeout=self.timeout_s)
 
     def tool_result_message(self, call: ToolCall, content: str) -> dict[str, Any]:
         return {"role": "tool", "content": content}

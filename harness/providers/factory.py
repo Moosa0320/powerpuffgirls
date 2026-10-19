@@ -46,14 +46,14 @@ def build_chain(
         names.append(LOCAL_DEFAULTS[kind])
     chain: list[Provider] = []
     for name in names:
-        cls = _resolve(registry.get(kind, {}).get(name))
-        if cls is None:
-            continue
         try:
-            provider = cls(env)
+            cls = _resolve(registry.get(kind, {}).get(name))
+            if cls is None:
+                continue
+            provider = cls(env=env)
             if provider.available():
                 chain.append(provider)
-        except Exception:  # noqa: BLE001 - a broken backend must never break the chain
+        except Exception:  # noqa: BLE001 - broken import/init/check never breaks the chain
             continue
     return chain
 

@@ -1,8 +1,15 @@
-"""Groq-hosted Whisper (open-weight model, hosted inference). Optional."""
+"""Groq-hosted Whisper (open-weight model, hosted inference). Optional cloud backend.
+
+Multipart POST to /audio/transcriptions with model, language, prompt and
+response_format=verbose_json. verbose_json carries the decoded `duration`, so the 30 s limit
+holds on this path too; a response without a usable duration is rejected (fail closed). The
+upload's file name and MIME type follow the sniffed container. Error messages never include
+the response body.
+"""
 from __future__ import annotations
 
 from harness.providers.base import GROQ_BASE, ProviderResponseError
-from harness.stt.base import MAX_AUDIO_BYTES, STTProvider
+from harness.stt.base import STTProvider, check_audio, check_duration, clean_transcript
 
 
 class GroqWhisperSTT(STTProvider):
@@ -14,8 +21,7 @@ class GroqWhisperSTT(STTProvider):
     def _transcribe(self, audio: bytes, language: str, initial_prompt: str) -> str:
         import httpx
 
-        if len(audio) > MAX_AUDIO_BYTES:
-            raise ProviderResponseError("audio exceeds the 30 s clip limit")
+        fmt = check_audio(audio)  # empty, tiny, oversized or unknown clips are never uploaded
         r = httpx.post(
             f"{GROQ_BASE}/audio/transcriptions",
             headers={"Authorization": f"Bearer {self.env['GROQ_API_KEY']}"},
@@ -23,11 +29,18 @@ class GroqWhisperSTT(STTProvider):
                 "model": self.env["GROQ_STT_MODEL"],
                 "language": language,
                 "prompt": initial_prompt,
-                "response_format": "json",
+                "response_format": "verbose_json",
             },
-            files={"file": ("clip.webm", audio, "audio/webm")},
+            files={"file": (fmt.filename, audio, fmt.mime_type)},
             timeout=60,
         )
         if r.status_code != 200:
             raise ProviderResponseError(f"groq stt status {r.status_code}")
-        return str(r.json().get("text", "")).strip()
+        try:
+            body = r.json()
+        except ValueError:
+            raise ProviderResponseError("groq stt response is not JSON") from None
+        if not isinstance(body, dict):
+            raise ProviderResponseError("groq stt response is not a JSON object")
+        check_duration(body.get("duration"))
+        return clean_transcript(body.get("text"))

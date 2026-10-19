@@ -5,6 +5,7 @@ The field and window are fixed by the harness; the model can only read this fiel
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -76,6 +77,19 @@ def build_evidence(session: Session, field_id: int, symptom_date: date, gaps_fou
     return Evidence(events=events, photos=photos, gaps_found=gaps_found, symptom_date=symptom_date)
 
 
+def _verify(report: dict[str, Any] | None, evidence: Evidence,
+            banned: list[re.Pattern[str]]) -> VerificationResult:
+    """verify_report for model output. A report the verifier cannot check (e.g. an ID that is an
+    object, not a string) is rejected like any other, so the run retries or falls back."""
+    if report is None:
+        return VerificationResult(False, ["final answer is not a JSON object"])
+    try:
+        return verify_report(report, evidence, banned)
+    except Exception as exc:  # noqa: BLE001 - malformed model output must not end the run
+        return VerificationResult(False, [f"report could not be checked ({type(exc).__name__}); "
+                                          "use exactly the report shape in the instructions"])
+
+
 @dataclass
 class InvestigationOutcome:
     report: dict[str, Any]
@@ -124,6 +138,7 @@ class Investigator:
 
     def run(self, field_id: int, symptom_date: date, window_days: int = 14,
             lang: str = "en") -> InvestigationOutcome:
+        self.loader.start_run()  # this run's disclosure log starts again at L1
         start, end = symptom_date - timedelta(days=window_days), symptom_date
         timeline = engine.get_timeline(self.session, field_id, start, end)
         gaps = engine.find_gaps(self.session, field_id, window_days, end=end)
@@ -131,11 +146,16 @@ class Investigator:
         log: list[dict[str, Any]] = []
         info: dict[str, Any] = {"llm": self.llm.name if self.llm else None, "skill": SKILL_NAME}
 
+        def record_disclosure() -> None:
+            """The levels this run used and the deepest one, on every path."""
+            info["disclosure"] = list(self.loader.log.levels)
+            info["disclosure_level"] = self.loader.log.deepest_level
+
         def fallback(reason: str, steps: int) -> InvestigationOutcome:
             log.append({"event": "fallback", "reason": reason})
             report = safe_template_report(timeline, gaps, window_days)
             report["used_fallback"] = True
-            info["disclosure"] = list(self.loader.log.levels)
+            record_disclosure()
             return InvestigationOutcome(report, True, log, info, steps)
 
         meta = self.loader.skills.get(SKILL_NAME)
@@ -163,12 +183,11 @@ class Investigator:
                     messages.append(self.llm.tool_result_message(call, tools.dispatch(call)))
                 continue
             report = parse_json_object(reply.content)
-            result = (verify_report(report, evidence, self.banned) if report is not None
-                      else VerificationResult(False, ["final answer is not a JSON object"]))
+            result = _verify(report, evidence, self.banned)
             log.append({"step": step, "event": "verify", "ok": result.ok, "errors": result.errors})
             if result.ok and report is not None:
                 report["used_fallback"] = False
-                info["disclosure"] = list(self.loader.log.levels)
+                record_disclosure()
                 return InvestigationOutcome(report, False, log, info, step)
             if retries >= MAX_VERIFY_RETRIES:
                 return fallback("verifier rejected the report after retries", step)

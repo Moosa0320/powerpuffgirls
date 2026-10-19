@@ -8,6 +8,7 @@ an empty missing-records section when gaps exist, uncited facts, a missing discl
 from __future__ import annotations
 
 import itertools
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from harness.engine import GapReport, TimelineItem, normalize_unit
+
+log = logging.getLogger("fasalnama.verifier")
 
 SECTIONS = ("records_show", "worth_investigating", "questions_next", "missing_records",
             "photo_observations")
@@ -29,26 +32,116 @@ _QTY_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(kg|gram|g|bori|bag|litre|liter|ml|l|ta
 _PCT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*%")
 _UNCONFIRMED_MARKERS = ("unconfirmed", "not confirmed", "tasdeeq nahi", "غیر تصدیق شدہ")
 
+_BANNED_LINE_RE = re.compile(r"^\s*-\s*regex:\s*`(.+)`\s*$")
+
+# Diagnosis and cause-as-fact patterns. The source of truth is the skill's
+# references/banned-claims.md; this is an identical copy, used only when that file is missing or
+# has no pattern lines (tests/test_verifier.py keeps the two in sync).
 DEFAULT_BANNED = [
-    r"\b(is|was|are|were)\s+caused\s+by\b", r"\bcaused\s+by\b", r"\bdefinitely\b",
-    r"\bcertainly\b", r"\bdeficiency\s+of\b",
-    r"\b(has|have|is|are)\s+(an?\s+)?(infection|blight|rust|mildew|virus|rot|fungus|disease)\b",
-    r"\b(infected|suffering)\s+(with|from)\b", r"\bthe\s+(cause|disease|problem)\s+is\b",
-    r"\b(ye|yeh|yah)\s+bimari\s+hai\b", r"\bbimari\s+hai\b", r"\bki\s+wajah\s+se\s+(hai|hua|hui)\b",
-    r"\b(pakka|yaqeenan|yakeenan)\b", r"\bki\s+kami\s+(hai|hui)\b",
+    r"\b(is|was|are|were)\s+caused\s+by\b",
+    r"\bcaused\s+by\b",
+    r"\b(caused|causing)\b",
+    r"\bcauses\b(?!\s+(of|are|were|may|might|could|can|cannot|include|including|need|needs|is|"
+    r"worth|for|such|that|which|like|and|or)\b|\s*[,.;:?!)]|\s*$)",
+    r"\b(led|leads)\s+to\b",
+    r"\b(resulted|resulting)\s+(in|from)\b",
+    r"\bresponsible\s+for\b",
+    r"\b(due\s+to|because\s+of|owing\s+to|as\s+a\s+result\s+of)\b(?!\s+(the\s+|a\s+|an\s+)?"
+    r"((missing|incomplete|absent|unavailable|insufficient|unknown|unrecorded|no|lack\s+of)\s+"
+    r"(\w+\s+)?(records?|data|information|quantit(y|ies)|dates?|entr(y|ies)|values?|details?)|"
+    r"gaps?\s+in\s+(the\s+)?(\w+\s+)?records?)\b)",
+    r"\bdefinitely\b",
+    r"\bcertainly\b",
+    r"\bdeficiency\s+of\b",
+    r"\b(is|are|was|were|has|have)\s+(?!no\b|not\b)(an?\s+)?(\w+\s+)?deficien(cy|t)\b",
+    r"\b(is|are|was|were|has|have)\s+(?!no\b|not\b)(an?\s+)?(\w+\s+)?(infections?|infected|"
+    r"blights?|rusts?|mildews?|virus(es)?|rots?|fung(us|i)|diseases?|diseased)\b",
+    r"\b(infected|suffering)\s+(with|from)\b",
+    r"\bthe\s+(cause|disease|problem)\s+is\b",
+    r"\b(ye|yeh|yah)\s+bimari\s+hai\b",
+    r"\bbimari\s+hai\b",
+    r"\b(infection|blight|rust|mildew|virus|rot|fungus|disease)\s+(hai|hain)\b",
+    r"\bki\s+wajah\s+se\s+(hai|hain|hua|hui|hue)\b",
+    r"\b(pakka|yaqeenan|yakeenan)\b",
+    r"\bki\s+kami\s+(hai|hui)\b",
+    r"یہ بیماری ہے",
+    r"بیماری ہے",
+    r"(انفیکشن|وائرس|فنگس|پھپھوندی|بلائٹ) (ہے|ہیں)",
+    r"کی وجہ سے (ہے|ہیں|ہوا|ہوئی|ہوئے)",
+    r"یقین(اً|ًا|ا)",
+    r"کی کمی (ہے|ہوئی)",
 ]
-# Checked on every claim.
+
+# Treatment and dosage advice. A treatment verb followed by one of these words is a noun or a
+# record, not advice: "Spray quantity was not recorded", "Use of urea was recorded",
+# "spray kiya gaya". Roman Urdu advice ("spray kar dein") has its own patterns.
+_NOUN_USE = (
+    r"(?!\s*[(,:;]|\s+(?:(?:the|a|an|this|that|its|missing|spray|fertili[sz]er|urea|irrigation|"
+    r"pesticide)\s+)*(?:of|was|were|is|are|has|had|have|not|and|or|"
+    r"on\s+(?:\d+|that|this|the\s+same)|recorded|logged|noted|done|records?|quantity|quantities|"
+    r"amount|dates?|details?|entry|entries|events?|history|name|product|data|information|notes?|"
+    r"photos?|timeline|report|soil\s+tests?|tests?|kiya|kia|kiye|ki|ka|ke|ko|se|mein|par|hua|hui|"
+    r"gaya|gayi|nahi|nahin|hai|tha|thi|kar|karne|karna|karte|karwaya|karaya|dalne|daalne|lagane|"
+    r"baad|pehle|wala|wali|wale)\b)"
+)
+_SENTENCE_START = (r"(?:(?:^|[.;:!?,])\s*|\b(?:please|then)\s+)"
+                   r"(?:(?:also|now|just|first|immediately)\s+)?")
+_EN_VERBS = r"(?:apply|spray|use|mix|add|drench)"
+_EN_GERUNDS = r"(?:applying|spraying|using|mixing|adding|drenching)"
+_EN_PRODUCTS = r"(?:pesticide|fungicide|insecticide|herbicide)s?"
+_ROMAN_NOUNS = (r"(?:spray|sprey|dawai|dawaai|dawa|zehar|zeher|khad|khaad|urea|dap|chhirkao|"
+                r"chirkao|pesticide|fungicide|insecticide|herbicide)")
+_URDU_NOUNS = r"(?<!\w)(?:اسپرے|سپرے|دوائی|دوا|زہر|کھاد|یوریا|چھڑکاؤ)"
+
+# Checked on every claim type, so a recommendation typed as a "fact" that cites an event fails.
 RECOMMENDATION_PATTERNS = [re.compile(p, re.I) for p in (
+    # English
     r"\b(should|must|needs?\s+to|ought\s+to)\s+(be\s+)?(apply|applied|spray|sprayed|use|used|add|added)\b",
-    r"\brecommend\w*\b[^.]*\b(pesticide|fungicide|insecticide|herbicide|spray|dose|dosage)\b",
-    r"\b(spray|dawai|khad)\s+(karein|karo|karen|kijiye|dalein|daalein|dalo)\b",
-    r"(اسپرے|دوائی|دوا) (کریں|ڈالیں)", r"استعمال کریں",
+    # ("An expert visit is recommended before any spray." is allowed.)
+    r"\brecommend\w*\b[^.]*\b(?<!before\sany\s)(?<!before\sa\s)(?<!before\sthe\s)"
+    r"(pesticide|fungicide|insecticide|herbicide|spray|dose|dosage)\b",
+    r"\b(pesticide|fungicide|insecticide|herbicide|spray|spraying|dose|dosage)\s+(\w+\s+){0,2}?"
+    r"(is|are)\s+(strongly\s+|highly\s+)?(recommended|advised|advisable|suggested)\b",
+    r"\b(recommended|advised|advisable|suggested|better|best|wise)\s+to\s+" + _EN_VERBS + r"\b"
+    + _NOUN_USE,
+    _SENTENCE_START + _EN_VERBS + r"\b" + _NOUN_USE,  # "Use mancozeb.", "If it spreads, spray ..."
+    r"\b(try|consider|recommend|suggest)\w*\s+" + _EN_GERUNDS + r"\b" + _NOUN_USE,
+    r"\bworth\s+(trying|using|applying|spraying)\b(?!\s+to\b)"
+    r"(?!\s+(the\s+)?(records?|photos?|notes?|data|timeline|report|information)\b)",
+    r"\b" + _EN_PRODUCTS + r"\s+(\w+\s+){0,3}?(could|can|may|might|would|will)\s+(also\s+)?(be\s+)?"
+    r"(applied|sprayed|used|tried|needed|effective|help|work)\b"
+    r"(?!\s+(to\s+)?(explain|understand|show|clarify|the\s+expert|an?\s+expert))",
+    _SENTENCE_START + r"(double|halve|reduce|increase|lower|raise|cut)\s+(the\s+)?(\w+\s+)?"
+    r"(dose|dosage|urea|fertili[sz]er|khad|spray|pesticide|fungicide)\b",
+    # Roman Urdu
+    r"\b" + _ROMAN_NOUNS + r"\s+(kar|daal|dal|de|laga|chhirak|chirak)\s+(dein|den|do|dijiye|dijie|"
+    r"dijye)\b",
+    r"\b" + _ROMAN_NOUNS + r"\s+(karein|karen|karo|kijiye|kijie|kariye|dalein|daalein|dalen|daalen|"
+    r"dalo|daalo|daliye|daaliye|dein|dijiye|lagaein|lagaen|lagayen|lagao|lagaiye|chhirkein|"
+    r"chirkein)\b",
+    r"\b(istemal|istemaal|istimal|istamal)\s+(karein|karen|karo|kijiye|kijie|kariye|"
+    r"kar\s+(dein|den|do|lein|lo|dijiye))\b",
+    r"\b" + _ROMAN_NOUNS + r"\s+(ka\s+|ki\s+)?((istemal|istimal)\s+)?(karna|karni|dalna|daalna|"
+    r"dalni|daalni|lagana|chhirakna)\s+(chahiye|chahie|chaiye|behtar|munasib|zaroori|zaruri)\b",
+    r"\b(dose|miqdar|miqdaar|khad|khaad|urea|spray|dawai)\s+(kam|zyada|ziada|zyaada|barha|badha|"
+    r"ghata|dugni|double|aadhi)\s+(kar\s+)?(karein|karen|karo|kijiye|dein|do|dijiye)\b",
+    # Urdu script
+    _URDU_NOUNS + r"\s+(کر|ڈال|دے|لگا|چھڑک)\s+(دیں|دو|دیجیے|دیجئے)(?!\w)",
+    _URDU_NOUNS + r"\s+(کریں|کرو|کیجیے|کیجئے|ڈالیں|ڈالو|لگائیں|لگاؤ|دیں)(?!\w)",
+    r"(?<!\w)استعمال\s+(کریں|کرو|کیجیے|کیجئے|کر\s+(دیں|دو|لیں|لو))(?!\w)",
+    _URDU_NOUNS + r"\s+(کا\s+|کی\s+)?(استعمال\s+)?(کرنا|کرنی|ڈالنا|ڈالنی|لگانا|چھڑکنا)\s+"
+    r"(چاہیے|چاہئے|بہتر|مناسب|ضروری)",
+    r"(?<!\w)چھڑک(یں|و)(?!\w)",
+    r"(?<!\w)(مقدار|خوراک|کھاد|یوریا|ڈوز|دوائی|دوا)\s+(کم|زیادہ|بڑھا|گھٹا|دگنی|دوگنی|آدھی)\s+"
+    r"(کر\s+)?(کریں|کرو|دیں|دو|کیجیے|کیجئے)(?!\w)",
 )]
-# Checked on possibilities and questions only (facts may quote a recorded dose).
+# Dose rates ("50 ml per acre", "2 bori fi acre", "50 ملی لیٹر فی ایکڑ"). Checked on possibilities
+# and questions only: a fact may quote a recorded dose, and the number check ties it to a record.
 NONFACT_RECOMMENDATION_PATTERNS = [re.compile(p, re.I) for p in (
-    r"(^|[.;!]\s*)(please\s+)?(apply|spray|mix)\s",
-    r"\b\d+(\.\d+)?\s*(ml|g|gram|kg|litre|liter|l|bori)\s*(per|/)\s*(acre|litre|liter|tanki|kanal)\b",
-    r"\b(pesticide|fungicide|insecticide)\b[^.]*\b(apply|spray|use)\b",
+    r"\b\d+(\.\d+)?\s*(ml|g|gram|grams|kg|kilo|litre|liter|l|bori|bag|bags)\s*(per|/|fi|har)\s*"
+    r"(acre|killa|kanal|litre|liter|tanki)\b",
+    r"\d+([.٫]\d+)?\s*(ملی\s*لیٹر|ملی\s*لٹر|لیٹر|لٹر|گرام|کلو|کلوگرام|بوری|بوریاں|ml|g|kg|bori)\s*"
+    r"(فی|في|ہر)\s*(ایکڑ|ایکر|کنال|لیٹر|لٹر|ٹینکی|کلہ)",
 )]
 
 
@@ -79,14 +172,19 @@ class VerificationResult:
 
 
 def load_banned_patterns(path: Path = BANNED_CLAIMS_FILE) -> list[re.Pattern[str]]:
-    """Patterns come from the skill's references/banned-claims.md, with built-in defaults."""
-    sources: list[str] = []
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            m = re.match(r"^\s*-\s*regex:\s*`(.+)`\s*$", line)
-            if m:
-                sources.append(m.group(1))
-    return [re.compile(p, re.I) for p in (sources or DEFAULT_BANNED)]
+    """Patterns come from the skill's references/banned-claims.md. If the file is missing,
+    unreadable or has no pattern lines, DEFAULT_BANNED is used and a warning is logged."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, ValueError) as exc:  # missing, or unreadable (UnicodeDecodeError)
+        log.warning("cannot read %s (%s); using the built-in banned patterns",
+                    path, type(exc).__name__)
+        return [re.compile(p, re.I) for p in DEFAULT_BANNED]
+    sources = [m.group(1) for m in map(_BANNED_LINE_RE.match, lines) if m]
+    if not sources:
+        log.warning("no '- regex:' lines in %s; using the built-in banned patterns", path)
+        sources = DEFAULT_BANNED
+    return [re.compile(p, re.I) for p in sources]
 
 
 def _qty_matches(value: float, unit: str, e: EventFact) -> bool:

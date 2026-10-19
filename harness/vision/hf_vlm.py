@@ -43,7 +43,8 @@ class HfVLM(VisionProvider):
             timeout=90,
         )
         if r.status_code != 200:
-            raise ProviderResponseError(f"hf router vision status {r.status_code}: {r.text[:200]}")
+            # Status only: the response body is remote text and can echo tokens or URLs.
+            raise ProviderResponseError(f"hf router vision status {r.status_code}")
         content = r.json()["choices"][0]["message"]["content"] or ""
         obj = parse_json_object(content)
         if obj is None:

@@ -1,4 +1,4 @@
-# Design — FasalNama (tasks 1–11)
+# Design — FasalNama (tasks 1-14)
 
 ## Overview
 
@@ -49,7 +49,7 @@ validation); **AI does language work only** (parsing, speech, vision observation
 
 ### DB layer (`app/backend/db/`, `app/backend/models.py`)
 - SQLAlchemy 2.0 declarative models with `Mapped[...]` typing.
-- Engine from `DATABASE_URL`; `sqlite:///` locally, `postgresql+psycopg://` on Render.
+- Engine from `DATABASE_URL`; `sqlite:///` locally, `postgresql+psycopg://` in the cloud.
 - Portability rules: no `AUTOINCREMENT`, no SQLite pragmas in schema, JSON via SQLAlchemy
   `JSON` type (maps to JSON/JSONB on PG, TEXT on SQLite), bytea via `LargeBinary`.
 - Display-ID generation (`E-###`, `P-###`) per farm, computed in a service helper not a
@@ -115,7 +115,7 @@ else return a code-written safe template report with `used_fallback=true`. Logs 
 FastAPI app, CORS from `CORS_ORIGINS`, passcode dependency checking `X-Passcode` against
 `APP_PASSCODE` on write/AI routes. Endpoints per section 6. `/health` is unprotected.
 
-## Data models (shared Pydantic/TS)
+## Data Models
 Report JSON shape (verifier contract):
 ```json
 {
@@ -152,3 +152,32 @@ Backend local: fastapi, uvicorn, sqlalchemy, alembic, pydantic, python-dotenv, h
 faster-whisper, pytest. Backend cloud: same minus heavy ML (no faster-whisper/torch/piper),
 plus groq client, opencv-python-headless or Pillow. Frontend: vite, react, typescript (phase 2).
 Any dependency not in the guide's lists requires explicit approval before use.
+
+## Frontend (Vite + React + TypeScript)
+
+- No router or UI library: a small state machine switches pages (Passcode, Farms, Log,
+  Confirm, Timeline, Investigate, Report).
+- `src/api.ts`: typed client for the section-6 endpoints. Base URL from `VITE_API_URL`, adds
+  `X-Passcode`, maps network errors and a slow `/health` to a "server is waking up" state.
+- `src/i18n.ts`: Urdu and English string tables. `dir` and font switch with the language.
+- Voice: MediaRecorder (audio/webm), 30 s cap, AnalyserNode-based auto-stop on silence.
+- Photos: canvas resize to max 1280 px JPEG before upload.
+- Verification: `npm run build` (tsc + vite build).
+
+## Deployment (Vercel), replacing the Render plan
+
+The user moved the cloud deployment from Render to Vercel.
+
+- API: a Vercel project at the repo root. Vercel's FastAPI support looks for an `app` instance
+  at standard entrypoints (`app.py`, `index.py`, `main.py`, ... or the same names in `src/` or
+  `app/`). Ours is `app/backend/main.py`, so the entrypoint is set with `tool.vercel.entrypoint`
+  in `pyproject.toml` (check the exact syntax in Vercel's docs). The whole API is one function
+  (500 MB Python bundle limit); `maxDuration` is set in `vercel.json` keyed by the entrypoint file.
+- Dependencies: the pinned cloud requirements (no faster-whisper, torch or piper).
+- DB: Neon Postgres via the Vercel Marketplace. URLs are normalized to `postgresql+psycopg://`;
+  pooling is serverless-safe (NullPool or Neon's pooled endpoint). Alembic owns the schema and
+  migrations run from a dev machine against the Neon URL before deploy.
+- Web: a second Vercel project rooted at `app/frontend` (Vite preset, SPA rewrite to
+  `index.html`). `VITE_API_URL` points at the API URL; the API's `CORS_ORIGINS` lists the web URL.
+- Limits: 4.5 MB request bodies, so photos are resized client-side and audio is capped at 30 s.
+- Secrets: set with `vercel env add` or the dashboard, never committed.

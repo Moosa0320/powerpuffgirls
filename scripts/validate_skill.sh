@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Validates the Agent Skill structure. Swap in the agentskills.io reference validator when available.
+# Validates the Agent Skill structure with no extra tools. CI also runs the agentskills.io
+# reference validator (skills-ref) on the same folder.
 set -euo pipefail
 SKILL_DIR="skill/farm-record-investigation"
 SKILL_MD="$SKILL_DIR/SKILL.md"

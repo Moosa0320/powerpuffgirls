@@ -7,5 +7,11 @@ pydantic==2.10.4
 python-dotenv==1.0.1
 httpx==0.28.1
 pillow==11.0.0
+# Form and File uploads (/photos, /transcribe)
+python-multipart==0.0.32
+# Expert handoff PDF
+reportlab==5.0.1
+# Photo blur check; 2.4.x is the newest line that still supports Python 3.11
+numpy==2.4.6
 faster-whisper==1.1.0
 pytest==8.3.4

@@ -13,4 +13,4 @@ class TTSProvider(Provider, ABC):
     def _speak(self, text: str, lang: str) -> bytes: ...
 
     def speak(self, text: str, lang: str = "ur") -> Result[bytes]:
-        return safe_call(self.name, self._speak, text, lang)
+        return safe_call(self.name, self._speak, text, lang, timeout=self.timeout_s)

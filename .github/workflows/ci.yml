@@ -1,23 +1,50 @@
-﻿name: CI
+name: CI
 on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      # Throwaway Postgres for the second test run (guide task 2: same suite on SQLite and Postgres).
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fasalnama_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fasalnama_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install
+      - name: Install backend test dependencies (pinned, no heavy ML libs)
+        run: python -m pip install -r app/backend/requirements-cloud.txt
+      - name: Run tests on SQLite
+        run: python -m pytest
+      - name: Run tests on Postgres
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/fasalnama_test
+        run: python -m pytest
+      - name: Validate skill (structure and standalone script)
+        run: bash scripts/validate_skill.sh
+      - name: Validate skill (agentskills.io reference validator, CI only)
+        # The skills-ref name on PyPI is a third-party upload, so install the reference validator
+        # from the official agentskills repo at a pinned commit, in its own venv (not an app dependency).
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest
-      - name: Run tests
-        run: pytest
-      - name: Validate skill
-        run: |
-          chmod +x scripts/validate_skill.sh || true
-          bash scripts/validate_skill.sh
+          python -m venv "$RUNNER_TEMP/skills-ref"
+          "$RUNNER_TEMP/skills-ref/bin/python" -m pip install \
+            "skills-ref @ git+https://github.com/agentskills/agentskills.git@f130f348f502d9804278a617f86929846896d2e9#subdirectory=skills-ref" \
+            click==8.1.8 strictyaml==1.7.3 python-dateutil==2.9.0.post0 six==1.17.0
+          "$RUNNER_TEMP/skills-ref/bin/skills-ref" validate skill/farm-record-investigation

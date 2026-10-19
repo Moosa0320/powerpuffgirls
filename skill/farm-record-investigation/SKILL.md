@@ -22,6 +22,8 @@ The user asks what changed in a field before a crop symptom, wants a timeline of
 
 Read references/investigation-method.md when choosing a window or handling approximate dates, and references/question-bank.md when writing questions for the expert.
 
+The CSV columns and unit conventions are in references/event-schema.md. To try the scripts without the app, run them on examples/sample_farm.csv.
+
 ## Rules
 - Never state a cause as fact. Say "may be worth investigating".
 - Never recommend a specific pesticide, fungicide or dosage.

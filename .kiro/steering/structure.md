@@ -28,7 +28,7 @@ FasalNama/
 ├── tests/
 ├── scripts/ (export_db.py, validate_skill.sh)
 ├── docs/ (architecture.png, screenshots)
-├── render.yaml
+├── vercel.json
 ├── .env.example
 ├── README.md
 ├── LICENSE (Apache-2.0)

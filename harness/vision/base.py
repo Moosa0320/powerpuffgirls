@@ -25,4 +25,4 @@ class VisionProvider(Provider, ABC):
         return {k: raw.get(k) for k in OBSERVATION_KEYS}  # drop anything outside the schema
 
     def observe(self, image: bytes) -> Result[dict[str, Any]]:
-        return safe_call(self.name, self._observe_checked, image)
+        return safe_call(self.name, self._observe_checked, image, timeout=self.timeout_s)

@@ -1,4 +1,5 @@
 ﻿# FasalNama CLOUD (Render free tier) — NO heavy ML libs. Pinned.
+# Groq is called over httpx, so the groq SDK is not needed.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
@@ -7,6 +8,11 @@ pydantic==2.10.4
 python-dotenv==1.0.1
 httpx==0.28.1
 pillow==11.0.0
+# Form and File uploads (/photos, /transcribe)
+python-multipart==0.0.32
+# Expert handoff PDF
+reportlab==5.0.1
+# Photo blur check; 2.4.x is the newest line that still supports Python 3.11
+numpy==2.4.6
 psycopg[binary]==3.2.3
-groq==0.13.1
 pytest==8.3.4
